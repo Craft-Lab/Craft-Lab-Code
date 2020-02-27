@@ -91,7 +91,7 @@ run_disease_network_simulation <- function(timesteps,
     # remove the network data
     as_tibble() %>%
     # wide -> long format
-    gather("time", "status", everything()) %>%
+    pivot_longer(names_to="time", values_to="status", everything()) %>%
     # clean up types
     mutate(time = as.integer(time),
            status = factor(status, levels=model_states)) %>%
