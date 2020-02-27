@@ -1,0 +1,105 @@
+library(magrittr)
+library(tidygraph)
+library(tidyverse)
+
+#' Network Disease Simulation Framework
+#'
+#' @description Code to simulate a disease process on a network of individuals
+#' @author Matthew J. Michalska-Smith
+#'
+#' @param timesteps the integer number of timesteps to take in the simulation
+#' @param contact_network a tidygraph representation of a binary directed or
+#' undirected network of contacts between individuals
+#' @param model_structure choice of compartmental model to simulate choices
+#' currently include SI(S), SIR(S), and SEIR(S).
+#'
+#' @note the following parameters dictate transition between the classes
+#' specified by the model structure. If set to 0, individuals never leave a
+#' class
+#'
+#' @param beta (required) the infection rate: transition rate for S -> I/E
+#' @param sigma the disease progression rate: transition from E -> I if there is
+#' an exposed class
+#' @param gamma (required) the recovery rate: transition rate for I -> S/R (set to 0 for SI)
+#' @param xi the immunity-loss rate: transition from R -> S (set to 0 for SIR)
+#'
+#' @return a timeseries showing the size of each disease class over the time of
+#' the simulation
+#'
+#' @example
+#' contact_network <- play_erdos_renyi(50, 0.4, directed=FALSE)
+#' timeseries <- run_disease_network_simulation(50, contact_network, "SIR", beta=0.1, gamma=0.1)
+#' ggplot(timeseries) + aes(x=time, y=n, colour=status) + geom_line()
+
+run_disease_network_simulation <- function(timesteps,
+                                           contact_network,
+                                           model_structure,
+                                           beta,
+                                           sigma=0,
+                                           gamma,
+                                           xi=0) {
+  # parse model structure
+  model_states <- str_split(model_structure, "")[[1]]
+  if (head(model_states, 1) == tail(model_states, 1)) model_states %<>% head(-1)
+
+  # initialize with one infected node (chosen at random)
+  contact_network %<>%
+    activate(nodes) %>%
+    mutate("0" = sample(c("I", rep("S", nrow(as_tibble(.)) - 1))) %>%
+             factor(levels=model_states))
+
+  # progress through the discrete time epidemic simulation
+  for (timestep in 1:timesteps) {
+    contact_network %<>%
+      activate(edges) %>%
+      # identify which links have the potential to produce new infectious individuals
+      # i.e. which links connect an infectious individual with a susceptible one?
+      # note that if useing a directed graph, only use the first clause of this "or"
+      mutate(pot_inf_link = or(and(.N()[.E()$from, str_c(timestep - 1)] == "I",
+                                   .N()[.E()$to, str_c(timestep - 1)]   == "S"),
+                               and(.N()[.E()$from, str_c(timestep - 1)] == "S",
+                                   .N()[.E()$to, str_c(timestep - 1)]   == "I")) %>%
+               as.integer()) %>%
+      activate(nodes) %>%
+      # see how many potentially infecting connections each individual has
+      mutate(number_infectious_neighbors =
+               centrality_degree(weights=pot_inf_link, mode="in"),
+             # the probability of a state-change this timestep is determined by
+             # the model parameters:
+             prob_change_status = case_when(
+               !!sym(str_c(timestep - 1)) == "S" ~
+                 1 - (1 - beta)^(number_infectious_neighbors), # infection rate
+               !!sym(str_c(timestep - 1)) == "E" ~ sigma,      # rate of disease progression
+               !!sym(str_c(timestep - 1)) == "I" ~ gamma,      # recovery rate
+               !!sym(str_c(timestep - 1)) == "R" ~ xi,         # rate of immunity loss
+               # if there is not a rate parameter for this state, then don't change
+               TRUE ~ 0),
+             # create a new column for this timestep, updating statuses when neccessary
+             !!str_c(timestep) :=
+               model_states[!!sym(str_c(timestep - 1)) %>%
+                              as.integer() %>%
+                              add(rbernoulli(n(), prob_change_status)) %>%
+                              # in some models, we loop around to the beginning again
+                              {ifelse(. > length(model_states), 1, .)}] %>%
+               factor(levels=model_states))
+  }
+
+  # convert the output to a more manageable format
+  timeseries <- contact_network %>%
+    # remove unnecessary columns
+    select(-number_infectious_neighbors, -prob_change_status) %>%
+    # remove the network data
+    as_tibble() %>%
+    # wide -> long format
+    gather("time", "status", everything()) %>%
+    # clean up types
+    mutate(time = as.integer(time),
+           status = factor(status, levels=model_states)) %>%
+    # summarise number of each class at each timestep
+    count(status, time) %>%
+    # add 0's for missing classes at each timestep
+    complete(status, nesting(time), fill=list(n=0))
+
+  # return the cleaned output
+  return(timeseries)
+}
