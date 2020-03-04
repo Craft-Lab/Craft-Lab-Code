@@ -1,48 +1,50 @@
 library(magrittr)
 library(tidygraph)
 library(tidyverse)
+library(docstring)
 
-#' Network Disease Simulation Framework
-#'
-#' @description Code to simulate a disease process on a network of individuals
-#' @author Matthew J. Michalska-Smith
-#'
-#' @param timesteps the integer number of timesteps to take in the simulation
-#' @param contact_network a tidygraph representation of a binary directed or
-#' undirected network of contacts between individuals
-#' @param model_structure choice of compartmental model to simulate choices
-#' currently include SI(S), SIR(S), and SEIR(S).
-#'
-#' @note the following parameters dictate transition between the classes
-#' specified by the model structure. If set to 0, individuals never leave a
-#' class
-#'
-#' @param beta (required) the infection rate: transition rate for S -> I/E
-#' @param sigma the disease progression rate: transition from E -> I if there is
-#' an exposed class
-#' @param gamma (required) the recovery rate: transition rate for I -> S/R (set to 0 for SI)
-#' @param xi the immunity-loss rate: transition from R -> S (set to 0 for SIR)
-#'
-#' @return a timeseries showing the size of each disease class over the time of
-#' the simulation
-#'
-#' @example
-#' contact_network <- play_erdos_renyi(50, 0.4, directed=FALSE)
-#' timeseries <- run_disease_network_simulation(50, contact_network, "SIR", beta=0.1, gamma=0.1)
-#' ggplot(timeseries) + aes(x=time, y=n, colour=status) + geom_line()
+run_disease_network_simulation <- function(timesteps, contact_network, model_structure,
+                                           beta, sigma=0, gamma, xi=0) {
+  #' Network Disease Simulation Framework
+  #'
+  #' @description Code to simulate a disease process on a network of individuals
+  #' @author Matthew J. Michalska-Smith
+  #'
+  #' @param timesteps the integer number of timesteps to take in the simulation
+  #' @param contact_network a tidygraph representation of a binary directed or
+  #' undirected network of contacts between individuals, or a square adjacency
+  #' matrix that will be converted into a tidygraph
+  #' @param model_structure choice of compartmental model to simulate choices1
+  #' currently include SI(S), SIR(S), and SEIR(S), provided as a string (e.g. "SIS")
+  #' @param beta (required) the infection rate: transition rate for S -> I/E
+  #' @param sigma the disease progression rate: transition from E -> I if there is
+  #' an exposed class. Defaults to 0. Note this means if an E class is present and
+  #' this parameter is not adjusted, then the E class will be a sink.
+  #' @param gamma (required) the recovery rate: transition rate for I -> S/R (set to 0 for SI)
+  #' @param xi the immunity-loss rate: transition from R -> S. Defaults to 0. Note
+  #' this means that if the model structure is SIRS or SEIRS and this parameter
+  #' is not adjusted, then will behave as if it were SIR or SEIR, respectively
+  #'
+  #' @return a tibble with three columns containing a timeseries showing the number of
+  #' nodes in each disease class over the time of the simulation
+  #'
+  #' @note
+  #' The dynamical parameters (beta, sigma, gamma, and xi) dictate transitions
+  #' between the classes specified by the model structure. If set to 0, individuals
+  #' never leave a class. if set to 1, individuals always leave the class in the
+  #' following timestep.
+  #'
+  #' @example
+  #' contact_network <- play_erdos_renyi(50, 0.4, directed=FALSE)
+  #' timeseries <- run_disease_network_simulation(50, contact_network, "SIR", beta=0.1, gamma=0.1)
+  #' ggplot(timeseries) + aes(x=time, y=n, colour=status) + geom_line()
 
-run_disease_network_simulation <- function(timesteps,
-                                           contact_network,
-                                           model_structure,
-                                           beta,
-                                           sigma=0,
-                                           gamma,
-                                           xi=0) {
   # parse model structure
   model_states <- str_split(model_structure, "")[[1]]
   if (head(model_states, 1) == tail(model_states, 1)) model_states %<>% head(-1)
 
   # initialize with one infected node (chosen at random)
+  if (is.matrix(contact_network)) contact_network %<>% as_tbl_graph()
   contact_network %<>%
     activate(nodes) %>%
     mutate("0" = sample(c("I", rep("S", nrow(as_tibble(.)) - 1))) %>%
