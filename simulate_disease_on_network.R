@@ -1,7 +1,7 @@
 library(magrittr)
-library(tidygraph)
+library(tidygraph, warn.conflicts=FALSE)
+library(docstring, warn.conflicts=FALSE)
 library(tidyverse)
-library(docstring)
 
 run_disease_network_simulation <- function(timesteps, contact_network, model_structure,
                                            beta, sigma=0, gamma, xi=0) {
@@ -34,7 +34,7 @@ run_disease_network_simulation <- function(timesteps, contact_network, model_str
   #' never leave a class. if set to 1, individuals always leave the class in the
   #' following timestep.
   #'
-  #' @example
+  #' @examples
   #' contact_network <- play_erdos_renyi(50, 0.4, directed=FALSE)
   #' timeseries <- run_disease_network_simulation(50, contact_network, "SIR", beta=0.1, gamma=0.1)
   #' ggplot(timeseries) + aes(x=time, y=n, colour=status) + geom_line()
