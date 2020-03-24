@@ -39,6 +39,19 @@ run_disease_network_simulation <- function(timesteps, contact_network, model_str
   #' timeseries <- run_disease_network_simulation(50, contact_network, "SIR", beta=0.1, gamma=0.1)
   #' ggplot(timeseries) + aes(x=time, y=n, colour=status) + geom_line()
 
+  # check that all necessary parameters are present (and non-zero)
+  if (not(all(c(beta, sigma, gamma, xi) >=0))) stop("All parameters must be >= 0")
+  if (beta == 0) warning("Must have non-zero beta for infection to occur")
+  if (str_detect(model_structure, "E") & sigma == 0)
+    warning("There is an exposed class, but with sigma = 0 there is no way to get out of it")
+  if (str_detect(model_structure, "R") & gamma == 0)
+    warning("There is a removed class, but with gamma = 0 there is no way to get into it")
+  if (str_detect(model_structure, "RS") & xi == 0)
+    warning("The model suggests waning immunity, but with xi = 0 there is no way to exit the removed class")
+  if (str_detect(model_structure, "I$") & gamma != 0) {
+    warning("The model suggests no immunity, yet a gamma > 0 was provided. Setting to 0 before continuing")
+    gamma <- 0
+  }
   # parse model structure
   model_states <- str_split(model_structure, "")[[1]]
   if (head(model_states, 1) == tail(model_states, 1)) model_states %<>% head(-1)
@@ -56,11 +69,13 @@ run_disease_network_simulation <- function(timesteps, contact_network, model_str
       activate(edges) %>%
       # identify which links have the potential to produce new infectious individuals
       # i.e. which links connect an infectious individual with a susceptible one?
-      # note that if useing a directed graph, only use the first clause of this "or"
-      mutate(pot_inf_link = or(and(.N()[.E()$from, str_c(timestep - 1)] == "I",
-                                   .N()[.E()$to, str_c(timestep - 1)]   == "S"),
-                               and(.N()[.E()$from, str_c(timestep - 1)] == "S",
-                                   .N()[.E()$to, str_c(timestep - 1)]   == "I")) %>%
+      mutate(pot_inf_link = ifelse(graph_is_directed()[1],
+                                   and(.N()[.E()$from, str_c(timestep - 1)] == "I",
+                                       .N()[.E()$to, str_c(timestep - 1)]   == "S"),
+                                   or(and(.N()[.E()$from, str_c(timestep - 1)] == "I",
+                                          .N()[.E()$to, str_c(timestep - 1)]   == "S"),
+                                      and(.N()[.E()$from, str_c(timestep - 1)] == "S",
+                                          .N()[.E()$to, str_c(timestep - 1)]   == "I"))) %>%
                as.integer()) %>%
       activate(nodes) %>%
       # see how many potentially infecting connections each individual has
