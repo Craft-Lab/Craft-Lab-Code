@@ -71,7 +71,7 @@ run_disease_network_simulation <- function(timesteps, contact_network, model_str
       # i.e. which links connect an infectious individual with a susceptible one?
       mutate(pot_inf_link = or(and(.N()[.E()$from, str_c(timestep - 1)] == "I",
                                    .N()[.E()$to, str_c(timestep - 1)]   == "S"),
-                               and(graph_is_directed(),
+                               and(!graph_is_directed(),
                                    and(.N()[.E()$from, str_c(timestep - 1)] == "S",
                                        .N()[.E()$to, str_c(timestep - 1)]   == "I"))) %>%
                as.integer()) %>%
