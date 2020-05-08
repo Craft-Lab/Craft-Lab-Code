@@ -69,40 +69,33 @@ run_disease_network_simulation <- function(timesteps, contact_network, model_str
       activate(edges) %>%
       # identify which links have the potential to produce new infectious individuals
       # i.e. which links connect an infectious individual with a susceptible one?
-      mutate(pot_inf_link = or(and(.N()[.E()$from, str_c(timestep - 1)] == "I",
-                                   .N()[.E()$to, str_c(timestep - 1)]   == "S"),
-                               and(!graph_is_directed(),
-                                   and(.N()[.E()$from, str_c(timestep - 1)] == "S",
-                                       .N()[.E()$to, str_c(timestep - 1)]   == "I"))) %>%
-               as.integer()) %>%
+      mutate(pot_inf_link = edge_is_between(.N()[str_c(timestep - 1)] == "S",
+                                            .N()[str_c(timestep - 1)] == "I")) %>%
       activate(nodes) %>%
-      # see how many potentially infecting connections each individual has
-      mutate(number_infectious_neighbors =
-               centrality_degree(weights=pot_inf_link, mode="in"),
-             # the probability of a state-change this timestep is determined by
-             # the model parameters:
-             prob_change_status = case_when(
-               !!sym(str_c(timestep - 1)) == "S" ~
-                 1 - (1 - beta)^(number_infectious_neighbors), # infection rate
-               !!sym(str_c(timestep - 1)) == "E" ~ sigma,      # rate of disease progression
-               !!sym(str_c(timestep - 1)) == "I" ~ gamma,      # recovery rate
-               !!sym(str_c(timestep - 1)) == "R" ~ xi,         # rate of immunity loss
-               # if there is not a rate parameter for this state, then don't change
-               TRUE ~ 0),
-             # create a new column for this timestep, updating statuses when neccessary
-             !!str_c(timestep) :=
-               model_states[!!sym(str_c(timestep - 1)) %>%
-                              as.integer() %>%
-                              add(rbernoulli(n(), prob_change_status)) %>%
-                              # in some models, we loop around to the beginning again
-                              {ifelse(. > length(model_states), 1, .)}] %>%
-               factor(levels=model_states))
+      # the probability of a state-change this timestep is determined by the model parameters:
+      mutate(prob_change_status = case_when(
+        !!sym(str_c(timestep - 1)) == "S" ~
+          # depends on how many potentially infecting connections each individual has
+          1 - (1 - beta)^(centrality_degree(weights=pot_inf_link, mode="in")), # infection rate
+        !!sym(str_c(timestep - 1)) == "E" ~ sigma,      # rate of disease progression
+        !!sym(str_c(timestep - 1)) == "I" ~ gamma,      # recovery rate
+        !!sym(str_c(timestep - 1)) == "R" ~ xi,         # rate of immunity loss
+        # if there is not a rate parameter for this state, then don't change
+        TRUE ~ 0),
+        # create a new column for this timestep, updating statuses when neccessary
+        !!str_c(timestep) :=
+          model_states[!!sym(str_c(timestep - 1)) %>%
+                         as.integer() %>%
+                         add(rbernoulli(n(), prob_change_status)) %>%
+                         # in some models, we loop around to the beginning again
+                         {ifelse(. > length(model_states), 1, .)}] %>%
+          factor(levels=model_states))
   }
 
   # convert the output to a more manageable format
-  timeseries <- contact_network %>%
+  timeseries <- contact_network %N>%
     # remove unnecessary columns
-    select(-number_infectious_neighbors, -prob_change_status) %>%
+    select(-prob_change_status) %>%
     # remove the network data
     as_tibble() %>%
     # wide -> long format
