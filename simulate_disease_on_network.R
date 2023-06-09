@@ -86,7 +86,7 @@ run_disease_network_simulation <- function(timesteps, contact_network, model_str
         !!str_c(timestep) :=
           model_states[!!sym(str_c(timestep - 1)) %>%
                          as.integer() %>%
-                         add(rbernoulli(n(), prob_change_status)) %>%
+                         add(rbinom(n(), size=1, prob=prob_change_status)) %>%
                          # in some models, we loop around to the beginning again
                          {ifelse(. > length(model_states), 1, .)}] %>%
           factor(levels=model_states))
